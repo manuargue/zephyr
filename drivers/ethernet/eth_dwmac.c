@@ -2,6 +2,7 @@
  * Driver for Synopsys DesignWare MAC
  *
  * Copyright (c) 2021 BayLibre SAS
+ * Copyright 2024 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -36,7 +37,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #endif
 
 /* size of pre-allocated packet fragments */
-#define RX_FRAG_SIZE CONFIG_NET_BUF_DATA_SIZE
+#define FRAG_SIZE CONFIG_NET_BUF_DATA_SIZE
 
 /*
  * Grace period to wait for TX descriptor/fragment availability.
@@ -360,14 +361,14 @@ static void dwmac_rx_refill_thread(void *arg1, void *unused1, void *unused2)
 
 		/* get a new fragment if the previous one was consumed */
 		if (!frag) {
-			frag = net_pkt_get_reserve_rx_data(RX_FRAG_SIZE, K_FOREVER);
+			frag = net_pkt_get_reserve_rx_data(FRAG_SIZE, K_FOREVER);
 			if (!frag) {
 				LOG_ERR("net_pkt_get_reserve_rx_data() returned NULL");
 				k_sem_give(&p->free_rx_descs);
 				break;
 			}
 			LOG_DBG("new frag[%d] at %p", d_idx, frag->data);
-			__ASSERT(frag->size == RX_FRAG_SIZE, "");
+			__ASSERT(frag->size == FRAG_SIZE, "");
 			sys_cache_data_invd_range(frag->data, frag->size);
 			p->rx_frags[d_idx] = frag;
 		} else {
@@ -509,6 +510,75 @@ static int dwmac_set_config(const struct device *dev,
 	return ret;
 }
 
+static void dwmac_dma_init(struct dwmac_priv *p)
+{
+	/* contiguous descriptor table */
+	REG_WRITE(DMA_CHn_CTRL(0), FIELD_PREP(DMA_CHn_CTRL_DSL, 0));
+
+	REG_WRITE(DMA_CHn_TX_CTRL(0),
+		FIELD_PREP(DMA_CHn_TX_CTRL_PBL, 32) |               /* Transmit Programmable Burst Length, 1, 2, 4, 8, 16, or 32 */
+		DMA_CHn_TX_CTRL_OSF);                               /* Operate on Second Packet */
+
+	REG_WRITE(DMA_CHn_RX_CTRL(0),
+		  FIELD_PREP(DMA_CHn_RX_CTRL_PBL, 32) |             /* Receive Programmable Burst Length, 1, 2, 4, 8, 16, or 32 */
+		  FIELD_PREP(DMA_CHn_RX_CTRL_RBSZ, FRAG_SIZE));     /* Receive Buffer size */
+
+	REG_WRITE(DMA_CHn_TXDESC_LIST_HADDR(0), TXDESC_PHYS_H(0));
+	REG_WRITE(DMA_CHn_TXDESC_LIST_ADDR(0), TXDESC_PHYS_L(0));
+	REG_WRITE(DMA_CHn_RXDESC_LIST_HADDR(0), RXDESC_PHYS_H(0));
+	REG_WRITE(DMA_CHn_RXDESC_LIST_ADDR(0), RXDESC_PHYS_L(0));
+	REG_WRITE(DMA_CHn_TXDESC_RING_LENGTH(0), NB_TX_DESCS - 1);
+	REG_WRITE(DMA_CHn_RXDESC_RING_LENGTH(0), NB_RX_DESCS - 1);
+}
+
+// /* DWMAC transmitter scheduling algorithm */
+// enum dwmac_sched_algo {
+// 	/** Weighted Round Robin (WRR) algorithm */
+// 	DWMAC_TX_SCHED_ALGO_WRR  = 0U,
+// 	/** Weighted Fair Queueing (WFQ) algorithm, available when DCB feature selected */
+// 	DWMAC_TX_SCHED_ALGO_WFQ  = 1U,
+// 	/** Deficit Weighted Round Robin (DWRR) algorithm, available when DCB feature selected */
+// 	DWMAC_TX_SCHED_ALGO_DWRR = 2U,
+// 	/** Strict priority algorithm */
+// 	DWMAC_TX_SCHED_ALGO_SP   = 3U
+// };
+
+static void dwmac_mtl_init(struct dwmac_priv *p)
+{
+#define DWMAC_MTL_TX_QUEUE_BLOCK_SIZE 256U
+#define DWMAC_MTL_RX_QUEUE_BLOCK_SIZE 256U
+
+	uint32_t blocks;
+
+	// TODO: this only make sense to configure when supporting multiple tx and rx queues
+	// REG_WRITE(MTL_OPERATION_MODE,
+	// 	/* TX scheduling algorithm */
+	// 	FIELD_PREP(MTL_OPERATION_MODE_SCHALG, DWMAC_TX_SCHED_ALGO_SP) |
+	// 	/* RX arbitration algorithm */
+	// 	FIELD_PREP(MTL_OPERATION_MODE_RAA, 0U));
+
+	/* TX queue */
+	blocks = (NB_TX_DESCS * FRAG_SIZE) / DWMAC_MTL_TX_QUEUE_BLOCK_SIZE;
+	if (blocks > 0U) {
+		blocks = blocks - 1U;
+	}
+	REG_WRITE(MTL_TXQn_OPERATION_MODE(0),
+		FIELD_PREP(MTL_TXQn_OPERATION_MODE_TQS, blocks) |
+		/* queue enabled */
+		FIELD_PREP(MTL_TXQn_OPERATION_MODE_TXQEN, 2U) |
+		/* TODO: should allow selecting transmit store and forward (TSF) or transmit threshold mode (TTC) */
+		MTL_TXQn_OPERATION_MODE_TSF);
+
+	/* RX queue */
+	blocks = (NB_RX_DESCS * FRAG_SIZE) / DWMAC_MTL_RX_QUEUE_BLOCK_SIZE;
+	if (blocks > 0U) {
+		blocks = blocks - 1U;
+	}
+	REG_WRITE(MTL_RXQn_OPERATION_MODE(0),
+		FIELD_PREP(MTL_RXQn_OPERATION_MODE_RQS, blocks));
+		/* TODO: allow selecting receive store and forward (RSF) or receive threshold mode (RTC) */
+}
+
 static void dwmac_iface_init(struct net_if *iface)
 {
 	struct dwmac_priv *p = net_if_get_device(iface)->data;
@@ -568,7 +638,7 @@ int dwmac_probe(const struct device *dev)
 	uint32_t reg_val;
 	k_timepoint_t timeout;
 
-	ret = dwmac_bus_init(p);
+	ret = dwmac_bus_init(dev);
 	if (ret != 0) {
 		return ret;
 	}
@@ -596,22 +666,13 @@ int dwmac_probe(const struct device *dev)
 	LOG_DBG("hw_feature: 0x%08x 0x%08x 0x%08x 0x%08x",
 		p->feature0, p->feature1, p->feature2, p->feature3);
 
-	dwmac_platform_init(p);
+	dwmac_platform_init(dev);
 
 	memset(p->tx_descs, 0, NB_TX_DESCS * sizeof(struct dwmac_dma_desc));
 	memset(p->rx_descs, 0, NB_RX_DESCS * sizeof(struct dwmac_dma_desc));
 
-	/* set up DMA */
-	REG_WRITE(DMA_CHn_TX_CTRL(0), 0);
-	REG_WRITE(DMA_CHn_RX_CTRL(0),
-		  FIELD_PREP(DMA_CHn_RX_CTRL_PBL, 32) |
-		  FIELD_PREP(DMA_CHn_RX_CTRL_RBSZ, RX_FRAG_SIZE));
-	REG_WRITE(DMA_CHn_TXDESC_LIST_HADDR(0), TXDESC_PHYS_H(0));
-	REG_WRITE(DMA_CHn_TXDESC_LIST_ADDR(0), TXDESC_PHYS_L(0));
-	REG_WRITE(DMA_CHn_RXDESC_LIST_HADDR(0), RXDESC_PHYS_H(0));
-	REG_WRITE(DMA_CHn_RXDESC_LIST_ADDR(0), RXDESC_PHYS_L(0));
-	REG_WRITE(DMA_CHn_TXDESC_RING_LENGTH(0), NB_TX_DESCS - 1);
-	REG_WRITE(DMA_CHn_RXDESC_RING_LENGTH(0), NB_RX_DESCS - 1);
+	dwmac_dma_init(p);
+	dwmac_mtl_init(p);
 
 	return 0;
 }

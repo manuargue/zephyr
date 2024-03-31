@@ -81,9 +81,9 @@ struct dwmac_priv {
  */
 
 int dwmac_probe(const struct device *dev);
-int dwmac_bus_init(struct dwmac_priv *p);
-void dwmac_platform_init(struct dwmac_priv *p);
-void dwmac_isr(const struct device *ddev);
+int dwmac_bus_init(const struct device *dev);
+void dwmac_platform_init(const struct device *dev);
+void dwmac_isr(const struct device *dev);
 extern const struct ethernet_api dwmac_api;
 
 /*
@@ -94,7 +94,7 @@ extern const struct ethernet_api dwmac_api;
 
 #define MAC_CONF				0x0000
 
-#define MAC_CONF_ARPEN					BIT(31)
+#define MAC_CONF_ARPEN				BIT(31)
 #define MAC_CONF_SARC				GENMASK(30, 28)
 #define MAC_CONF_IPC				BIT(27)
 #define MAC_CONF_IPG				GENMASK(26, 24)
@@ -649,6 +649,13 @@ extern const struct ethernet_api dwmac_api;
 
 #define MTL_OPERATION_MODE			0x0c00
 
+#define MTL_OPERATION_MODE_FRPE			BIT(15)
+#define MTL_OPERATION_MODE_CNTCLR		BIT(9)
+#define MTL_OPERATION_MODE_CNTPRST		BIT(8)
+#define MTL_OPERATION_MODE_SCHALG		GENMASK(6, 5)
+#define MTL_OPERATION_MODE_RAA			BIT(2)
+#define MTL_OPERATION_MODE_DTXSTS		BIT(1)
+
 /* 17.2.2 */
 
 #define MTL_DBG_CTL				0x0c08
@@ -790,6 +797,12 @@ extern const struct ethernet_api dwmac_api;
 
 #define MTL_TXQn_OPERATION_MODE(n)		(0x0d00 + 0x40 * (n))
 
+#define MTL_TXQn_OPERATION_MODE_TQS		GENMASK(20, 16)
+#define MTL_TXQn_OPERATION_MODE_TTC		GENMASK(6, 4)
+#define MTL_TXQn_OPERATION_MODE_TXQEN		GENMASK(3, 2)
+#define MTL_TXQn_OPERATION_MODE_TSF		BIT(1)
+#define MTL_TXQn_OPERATION_MODE_FTQ		BIT(0)
+
 /* 17.3.2, 17.4.2 */
 
 #define MTL_TXQn_UNDERFLOW(n)			(0x0d04 + 0x40 * (n))
@@ -829,6 +842,16 @@ extern const struct ethernet_api dwmac_api;
 /* 17.3.7, 17.4.11 */
 
 #define MTL_RXQn_OPERATION_MODE(n)		(0x0d30 + 0x40 * (n))
+
+#define MTL_RXQn_OPERATION_MODE_RQS		GENMASK(24, 20)
+#define MTL_RXQn_OPERATION_MODE_RFD		GENMASK(17, 14)
+#define MTL_RXQn_OPERATION_MODE_RFA		GENMASK(11, 8)
+#define MTL_RXQn_OPERATION_MODE_EHFC		BIT(7)
+#define MTL_RXQn_OPERATION_MODE_DIS_TCP_EF	BIT(6)
+#define MTL_RXQn_OPERATION_MODE_RSF		BIT(5)
+#define MTL_RXQn_OPERATION_MODE_FEP		BIT(4)
+#define MTL_RXQn_OPERATION_MODE_FUP		BIT(3)
+#define MTL_RXQn_OPERATION_MODE_RTC		GENMASK(1, 0)
 
 /* 17.3.8, 17.4.12 */
 
