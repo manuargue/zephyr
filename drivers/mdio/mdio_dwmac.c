@@ -18,146 +18,195 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/drivers/clock_control.h>
 
 struct dwmac_config {
-	uint8_t instance;
-	bool suppress_preamble;
 	const struct pinctrl_dev_config *pincfg;
 	const struct device *clock_dev;
 	clock_control_subsys_t clock_subsys;
+	uint8_t clock_range; // TODO: add prop directly to dt
+	bool suppress_preamble;
 };
 
 struct dwmac_priv {
-	struct k_mutex bus_mutex;
+	struct k_mutex transfer_lock;
 };
+
+struct dwmac_transfer {
+	enum mdio_opcode op;
+	bool c45;
+	union {
+		uint16_t out;
+		uint16_t *in;
+	} data;
+	uint8_t physaddr;
+	uint8_t devaddr;
+	uint16_t regaddr;
+};
+
+// TODO: move to mdio.h, but there's a problem because c45/c22 opcodes overlap
+// #define MDIO_IS_C45(op) \
+// 	(((op) == MDIO_OP_C45_WRITE) || ((op) == MDIO_OP_C45_READ) || \
+// 	 ((op) == MDIO_OP_C45_READ_INC) || ((op) == MDIO_OP_C45_ADDRESS))
+
+static inline int dwmac_busy_wait(uint32_t regaddr, uint32_t mask)
+{
+	// TODO: add to kconfig
+	uint32_t delay_us = 1; // CONFIG_MDIO_DWCXGMAC_STATUS_BUSY_CHECK_TIMEOUT;
+	bool ret;
+
+	ret = WAIT_FOR(!(REG_READ(regaddr) & mask), delay_us, k_busy_wait(1));
+	if (!ret) {
+		return -ETIMEDOUT;
+	}
+
+	return 0;
+}
+
+static int dwmac_transfer(struct device *dev, struct dwmac_transfer *mdio)
+{
+	const struct dwmac_config *const cfg = dev->config;
+	struct dwmac_priv *p = dev->data;
+	int ret;
+
+	k_mutex_lock(&p->transfer_lock, K_FOREVER);
+
+	REG_WRITE(MAC_MDIO_DATA,
+		FIELD_PREP(MAC_MDIO_DATA_GD, mdio->data.out) |
+		FIELD_PREP(MAC_MDIO_DATA_RA, mdio->c45 ? mdio->regaddr : 0U));
+
+	REG_WRITE(MAC_MDIO_ADDRESS,
+		MAC_MDIO_ADDRESS_GOC_GB |
+		FIELD_PREP(MAC_MDIO_ADDRESS_GOC_C45E, mdio->c45) |
+		MAC_MDIO_ADDRESS_GOC_0 |
+		FIELD_PREP(MAC_MDIO_ADDRESS_GOC_1, (MDIO_OP_C45_READ || MDIO_OP_C22_READ)) |
+		FIELD_PREP(MAC_MDIO_ADDRESS_CR, cfg->clock_range) |
+		FIELD_PREP(MAC_MDIO_ADDRESS_RDA, mdio->c45 ? mdio->devaddr : mdio->regaddr) |
+		FIELD_PREP(MAC_MDIO_ADDRESS_PA, mdio->physaddr) |
+		FIELD_PREP(MAC_MDIO_ADDRESS_PSE, cfg->suppress_preamble));
+
+	ret = dwmac_busy_wait(MAC_MDIO_ADDRESS, MAC_MDIO_ADDRESS_GOC_GB);
+	if (ret) {
+		LOG_ERR("%s: transfer timedout", dev->name);
+		goto done;
+	}
+
+	if ((mdio->op == MDIO_OP_C22_READ) || (mdio->op == MDIO_OP_C45_READ)) {
+		*mdio->data.in = REG_READ(MAC_MDIO_DATA) & MAC_MDIO_DATA_GD;
+	}
+
+done:
+	k_mutex_unlock(&p->transfer_lock);
+
+	return ret;
+}
 
 static int dwmac_read_c45(const struct device *dev, uint8_t prtad, uint8_t devad, uint16_t regad,
 			  uint16_t *regval)
 {
-	// const struct dwmac_config *const cfg = dev->config;
-	struct dwmac_priv *p = dev->data;
+	struct dwmac_transfer mdio = {
+		.op = MDIO_OP_C45_READ,
+		.c45 = true,
+		.physaddr = prtad,
+		.devaddr = devad,
+		.regaddr = regad,
+		.data.in = regval,
+	};
 
-	k_mutex_lock(&p->bus_mutex, K_FOREVER);
-
-	/* Configure MDIO controller before initiating a transmission */
-	// Gmac_Ip_EnableMDIO(cfg->instance, cfg->suppress_preamble, data->clock_freq);
-
-	// status = Gmac_Ip_MDIOReadMMD(cfg->instance, prtad, devad, regad, regval,
-	// 			     CONFIG_MDIO_NXP_S32_TIMEOUT);
-
-	k_mutex_unlock(&p->bus_mutex);
-
-	return 0;
+	return dwmac_transfer(&mdio);
 }
 
 static int dwmac_write_c45(const struct device *dev, uint8_t prtad, uint8_t devad, uint16_t regad,
 			   uint16_t regval)
 {
-	// const struct dwmac_config *const cfg = dev->config;
-	struct dwmac_priv *p = dev->data;
+	struct dwmac_transfer mdio = {
+		.op = MDIO_OP_C45_WRITE,
+		.c45 = true,
+		.physaddr = prtad,
+		.devaddr = devad,
+		.regaddr = regad,
+		.data.out = regval,
+	};
 
-	k_mutex_lock(&p->bus_mutex, K_FOREVER);
-
-	/* Configure MDIO controller before initiating a transmission */
-	// Gmac_Ip_EnableMDIO(cfg->instance, cfg->suppress_preamble, data->clock_freq);
-
-	// status = Gmac_Ip_MDIOWriteMMD(cfg->instance, prtad, devad, regad, regval,
-	// 			      CONFIG_MDIO_NXP_S32_TIMEOUT);
-
-	k_mutex_unlock(&p->bus_mutex);
-
-	return 0;
+	return dwmac_transfer(&mdio);
 }
 
 static int dwmac_read_c22(const struct device *dev, uint8_t prtad, uint8_t regad, uint16_t *regval)
 {
-	// const struct dwmac_config *const cfg = dev->config;
-	struct dwmac_priv *p = dev->data;
+	struct dwmac_transfer mdio = {
+		.op = MDIO_OP_C22_READ,
+		.c45 = false,
+		.physaddr = prtad,
+		.regaddr = regad,
+		.data.in = regval,
+	};
 
-	k_mutex_lock(&p->bus_mutex, K_FOREVER);
-
-	/* Configure MDIO controller before initiating a transmission */
-	// Gmac_Ip_EnableMDIO(cfg->instance, cfg->suppress_preamble, data->clock_freq);
-
-	// status = Gmac_Ip_MDIORead(cfg->instance, prtad, regad, regval,
-	// 			  CONFIG_MDIO_NXP_S32_TIMEOUT);
-
-	k_mutex_unlock(&p->bus_mutex);
-
-	return 0;
+	return dwmac_transfer(&mdio);
 }
 
 static int dwmac_write_c22(const struct device *dev, uint8_t prtad, uint8_t regad, uint16_t regval)
 {
-	// const struct dwmac_config *const cfg = dev->config;
-	struct dwmac_priv *p = dev->data;
+	struct dwmac_transfer mdio = {
+		.op = MDIO_OP_C22_WRITE,
+		.c45 = false,
+		.physaddr = prtad,
+		.regaddr = regad,
+		.data.out = regval,
+	};
 
-	k_mutex_lock(&p->bus_mutex, K_FOREVER);
-
-	/* Configure MDIO controller before initiating a transmission */
-	// Gmac_Ip_EnableMDIO(cfg->instance, cfg->suppress_preamble, data->clock_freq);
-
-	// status = Gmac_Ip_MDIOWrite(cfg->instance, prtad, regad, regval,
-	// 			   CONFIG_MDIO_NXP_S32_TIMEOUT);
-
-	k_mutex_unlock(&p->bus_mutex);
-
-	return 0;
+	return dwmac_transfer(&mdio);
 }
 
-static int dwmac_csr_init(uint32_t clk_rate)
-{
-	uint32_t divider;
+// static int dwmac_csr_init(uint32_t clk_rate)
+// {
+// 	uint32_t divider;
 
-	clk_rate /= MHZ(1);
-	if (clk_rate >= 20 && clk_rate < 35) {
-		divider = 2;
-	} else if (clk_rate < 60) {
-		divider = 3;
-	} else if (clk_rate < 100) {
-		divider = 0;
-	} else if (clk_rate < 150) {
-		divider = 1;
-	} else if (clk_rate < 250) {
-		divider = 4;
-	} else if (clk_rate < 300) {
-		divider = 5;
-	} else if (clk_rate < 500) {
-		divider = 6;
-	} else if (clk_rate < 800) {
-		divider = 7;
-	} else {
-		LOG_ERR("MDIO clock range not supported");
-		return -ENOTSUP;
-	}
+// 	clk_rate /= MHZ(1);
+// 	if (clk_rate >= 20 && clk_rate < 35) {
+// 		divider = 2;
+// 	} else if (clk_rate < 60) {
+// 		divider = 3;
+// 	} else if (clk_rate < 100) {
+// 		divider = 0;
+// 	} else if (clk_rate < 150) {
+// 		divider = 1;
+// 	} else if (clk_rate < 250) {
+// 		divider = 4;
+// 	} else if (clk_rate < 300) {
+// 		divider = 5;
+// 	} else if (clk_rate < 500) {
+// 		divider = 6;
+// 	} else if (clk_rate < 800) {
+// 		divider = 7;
+// 	} else {
+// 		LOG_ERR("MDIO clock range not supported");
+// 		return -ENOTSUP;
+// 	}
 
-	// config->base->MAC_MDIO_ADDRESS = ENET_QOS_REG_PREP(MAC_MDIO_ADDRESS, CR, divider);
-
-	return 0;
-}
+// 	return 0;
+// }
 
 static int dwmac_init(const struct device *dev)
 {
 	const struct dwmac_config *const cfg = dev->config;
 	struct dwmac_priv *p = dev->data;
-	uint32_t clock_freq;
+	// uint32_t clock_freq;
 	int err;
 
-	if (cfg->clock_dev) {
-		if (!device_is_ready(cfg->clock_dev)) {
-			LOG_ERR("MDIO clock control device not ready");
-			return -ENODEV;
-		}
+	// if (cfg->clock_dev) {
+	// 	if (!device_is_ready(cfg->clock_dev)) {
+	// 		LOG_ERR("MDIO clock control device not ready");
+	// 		return -ENODEV;
+	// 	}
 
-		err = clock_control_get_rate(cfg->clock_dev, cfg->clock_subsys, &clock_freq);
-		if (err != 0) {
-			LOG_ERR("Failed to get MDIO clock frequency (%d)", err);
-			return err;
-		}
+	// 	err = clock_control_get_rate(cfg->clock_dev, cfg->clock_subsys, &clock_freq);
+	// 	if (err != 0) {
+	// 		LOG_ERR("Failed to get MDIO clock frequency (%d)", err);
+	// 		return err;
+	// 	}
 
-		err = dwmac_csr_init(clock_freq);
-		if (err != 0) {
-			return err;
-		}
-	}
+	// 	err = dwmac_csr_init(clock_freq);
+	// 	if (err != 0) {
+	// 		return err;
+	// 	}
+	// }
 
 	if (cfg->pincfg) {
 		err = pinctrl_apply_state(cfg->pincfg, PINCTRL_STATE_DEFAULT);
@@ -167,7 +216,7 @@ static int dwmac_init(const struct device *dev)
 		}
 	}
 
-	k_mutex_init(&p->bus_mutex);
+	k_mutex_init(&p->transfer_lock);
 
 	return 0;
 }

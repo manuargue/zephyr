@@ -586,7 +586,7 @@ extern const struct ethernet_api dwmac_api;
 #define MAC_MDIO_ADDRESS_SKAP			BIT(4)
 #define MAC_MDIO_ADDRESS_GOC_1			BIT(3)
 #define MAC_MDIO_ADDRESS_GOC_0			BIT(2)
-#define MAC_MDIO_ADDRESS_GOC_C45E			BIT(1)
+#define MAC_MDIO_ADDRESS_GOC_C45E		BIT(1)
 #define MAC_MDIO_ADDRESS_GOC_GB			BIT(0)
 
 /* 17.1.63 */

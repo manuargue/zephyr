@@ -7,6 +7,6 @@ compatible: "snps,designware-ethernet-mdio"
 
 include: [mdio-controller.yaml, pinctrl-device.yaml]
 
-properties:
-  clocks:
-    required: true
+# properties:
+#   clocks:
+#     required: true
