@@ -17,7 +17,7 @@ if MDIO_DWMAC
 
 config MDIO_DWMAC_TIMEOUT
 	int "Timeout for read/write operations in milliseconds"
-	default 1000
+	default 100
 	help
 	  Timeout (in milliseconds) for read/write operations over MDIO.
 

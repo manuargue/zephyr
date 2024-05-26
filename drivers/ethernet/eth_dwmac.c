@@ -18,9 +18,9 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/cache.h>
 #include <zephyr/net/ethernet.h>
 #include <zephyr/sys/barrier.h>
+#include <zephyr/drivers/ethernet/eth_dwmac_priv.h>
 #include <ethernet/eth_stats.h>
 
-#include "eth_dwmac_priv.h"
 #include "eth.h"
 
 
@@ -577,6 +577,12 @@ static void dwmac_mtl_init(struct dwmac_priv *p)
 	REG_WRITE(MTL_RXQn_OPERATION_MODE(0),
 		FIELD_PREP(MTL_RXQn_OPERATION_MODE_RQS, blocks));
 		/* TODO: allow selecting receive store and forward (RSF) or receive threshold mode (RTC) */
+
+	/*
+	 * In multiple receive queues configuration, all the queues are disabled by default.
+	 * Enable only queue 0 for generic traffic.
+	*/
+	REG_WRITE(MAC_RXQ_CTRL0, FIELD_PREP(MAC_RXQ_CTRL0_RXQ0EN, 0x2));
 }
 
 static void dwmac_iface_init(struct net_if *iface)

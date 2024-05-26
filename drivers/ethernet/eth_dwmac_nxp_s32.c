@@ -20,6 +20,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/net/ethernet.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/ethernet/eth_dwmac_priv.h>
 #include <zephyr/irq.h>
 
 #if defined(CONFIG_SOC_SERIES_S32K3)
@@ -27,7 +28,6 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #endif /* CONFIG_SOC_SERIES_S32K3 */
 
 #include "eth.h"
-#include "eth_dwmac_priv.h"
 
 /* NXP Organizational Unique Identifier */
 #define NXP_OUI_BYTE_0 0xAC
@@ -116,7 +116,7 @@ void dwmac_platform_init(const struct device *dev)
 	const struct dwmac_config *cfg = dev->config;
 
 	/* Interrupts are level signals asserted on TX/RX packet transfer completion events */
-	REG_WRITE(DMA_MODE, FIELD_PREP(DMA_MODE_INTM, 1));
+	// REG_WRITE(DMA_MODE, FIELD_PREP(DMA_MODE_INTM, 1));
 
 	/* AHB - Address-Aligned Beats */
 	REG_WRITE(DMA_SYSBUS_MODE, DMA_SYSBUS_MODE_AAL);
@@ -143,13 +143,13 @@ void dwmac_platform_init(const struct device *dev)
 	IRQ_CONNECT(DT_INST_IRQ_BY_NAME(n, name, irq), DT_INST_IRQ_BY_NAME(n, name, priority),     \
 		    isr, DEVICE_DT_INST_GET(n),                                                    \
 		    COND_CODE_1(DT_INST_IRQ_HAS_CELL(n, flags),                                    \
-				(DT_INST_IRQ_BY_NAME(n, name, flags)), (0)))
+				(DT_INST_IRQ_BY_NAME(n, name, flags)), (0)));                      \
+	irq_enable(DT_INST_IRQ_BY_NAME(n, name, irq));
 
 #define DWMAC_NXP_S32_INST_INIT(n)                                                                 \
 	PINCTRL_DT_INST_DEFINE(n);                                                                 \
 	static void instance_init##n(struct dwmac_priv *p)                                         \
 	{                                                                                          \
-		DWMAC_NXP_S32_INST_IRQ_INIT(n, common, dwmac_isr);                                 \
 		DWMAC_NXP_S32_INST_IRQ_INIT(n, tx, dwmac_isr);                                     \
 		DWMAC_NXP_S32_INST_IRQ_INIT(n, rx, dwmac_isr);                                     \
 	}                                                                                          \

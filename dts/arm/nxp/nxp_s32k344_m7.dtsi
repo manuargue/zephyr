@@ -633,9 +633,9 @@
 			status = "disabled";
 		};
 
-		mdio0: mdio@40480200 {
-			reg = <0x40480200 0x8>;
+		mdio0: mdio@40480000 {
 			compatible = "snps,designware-ethernet-mdio";
+			reg = <0x40480000 0x4000>;
 			clocks = <&clock NXP_S32_AIPS_PLAT_CLK>;
 			#address-cells = <1>;
 			#size-cells = <0>;
