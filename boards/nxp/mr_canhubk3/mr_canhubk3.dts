@@ -464,7 +464,7 @@
 	pinctrl-0 = <&emac0_default>;
 	pinctrl-names = "default";
 	phy-connection-type = "rmii";
-	local-mac-address = [02 04 9f aa bb cc];
+	local-mac-address = [ac 9a 22 aa bb cc];
 	// phy-handle = <&phy>;
 	status = "okay";
 };

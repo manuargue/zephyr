@@ -110,6 +110,14 @@ static enum ethernet_hw_caps dwmac_caps(const struct device *dev)
 		caps |= ETHERNET_LINK_10BASE_T | ETHERNET_LINK_100BASE_T;
 	}
 
+	if (p->feature0 & MAC_HW_FEATURE0_RXCOESEL) {
+		caps |= ETHERNET_HW_RX_CHKSUM_OFFLOAD;
+	}
+
+	if (p->feature0 & MAC_HW_FEATURE0_TXCOESEL) {
+		caps |= ETHERNET_HW_TX_CHKSUM_OFFLOAD;
+	}
+
 	caps |= ETHERNET_PROMISC_MODE;
 
 	return caps;
@@ -141,6 +149,11 @@ static int dwmac_send(const struct device *dev, struct net_pkt *pkt)
 	/* initial flag values */
 	des2_flags = 0;
 	des3_flags = TDES3_FD | TDES3_OWN;
+	if (p->feature0 & MAC_HW_FEATURE0_TXCOESEL) {
+		// TODO: add macros/enums for the value
+		/* IP Header checksum and payload checksum calculation and insertion are enabled */
+		des3_flags |= FIELD_PREP(TDES3_CIC, 0x3);
+	}
 
 	/* map packet fragments */
 	d_idx = p->tx_desc_head;
@@ -510,6 +523,24 @@ static int dwmac_set_config(const struct device *dev,
 	return ret;
 }
 
+static void dwmac_mac_init(struct dwmac_priv *p)
+{
+	uint32_t reg_val;
+
+	reg_val = REG_READ(MAC_CONF);
+	if (p->feature0 & MAC_HW_FEATURE0_RXCOESEL) {
+		/* Enable IPv4 header and IPv4/6 TCP/UDP/ICMP checksum check */
+		reg_val |= MAC_CONF_IPC;
+	}
+	REG_WRITE(MAC_CONF, reg_val);
+
+	/*
+	 * In multiple receive queues configuration, all the queues are disabled by default.
+	 * Enable only queue 0 for generic traffic.
+	*/
+	REG_WRITE(MAC_RXQ_CTRL0, FIELD_PREP(MAC_RXQ_CTRL0_RXQ0EN, 0x2));
+}
+
 static void dwmac_dma_init(struct dwmac_priv *p)
 {
 	/* contiguous descriptor table */
@@ -577,12 +608,6 @@ static void dwmac_mtl_init(struct dwmac_priv *p)
 	REG_WRITE(MTL_RXQn_OPERATION_MODE(0),
 		FIELD_PREP(MTL_RXQn_OPERATION_MODE_RQS, blocks));
 		/* TODO: allow selecting receive store and forward (RSF) or receive threshold mode (RTC) */
-
-	/*
-	 * In multiple receive queues configuration, all the queues are disabled by default.
-	 * Enable only queue 0 for generic traffic.
-	*/
-	REG_WRITE(MAC_RXQ_CTRL0, FIELD_PREP(MAC_RXQ_CTRL0_RXQ0EN, 0x2));
 }
 
 static void dwmac_iface_init(struct net_if *iface)
@@ -679,6 +704,7 @@ int dwmac_probe(const struct device *dev)
 
 	dwmac_dma_init(p);
 	dwmac_mtl_init(p);
+	dwmac_mac_init(p);
 
 	return 0;
 }

@@ -13,7 +13,6 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
-// TODO
 #define DT_DRV_COMPAT nxp_s32_gmac
 
 #include <zephyr/kernel.h>
@@ -45,23 +44,23 @@ struct dwmac_config {
 static int select_phy_interface(uint8_t mii_mode)
 {
 #if defined(CONFIG_SOC_SERIES_S32K3)
-	uint32_t regval;
+	uint32_t reg_val;
 
 	switch (mii_mode) {
 	case 0: /* mii */
-		regval = DCM_GPR_DCMRWF1_EMAC_CONF_SEL(0U);
+		reg_val = DCM_GPR_DCMRWF1_EMAC_CONF_SEL(0U);
 		break;
 	case 1: /* rmii */
-		regval = DCM_GPR_DCMRWF1_EMAC_CONF_SEL(2U);
+		reg_val = DCM_GPR_DCMRWF1_EMAC_CONF_SEL(2U);
 		break;
 	case 3: /* rgmii */
-		regval = DCM_GPR_DCMRWF1_EMAC_CONF_SEL(1U);
+		reg_val = DCM_GPR_DCMRWF1_EMAC_CONF_SEL(1U);
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	IP_DCM_GPR->DCMRWF1 = (IP_DCM_GPR->DCMRWF1 & ~DCM_GPR_DCMRWF1_EMAC_CONF_SEL_MASK) | regval;
+	IP_DCM_GPR->DCMRWF1 = (IP_DCM_GPR->DCMRWF1 & ~DCM_GPR_DCMRWF1_EMAC_CONF_SEL_MASK) | reg_val;
 #else
 #error "SoC not supported"
 #endif /* CONFIG_SOC_SERIES_S32K3 */
@@ -114,6 +113,7 @@ void dwmac_platform_init(const struct device *dev)
 {
 	struct dwmac_priv *p = dev->data;
 	const struct dwmac_config *cfg = dev->config;
+	uint32_t reg_val;
 
 	/* Interrupts are level signals asserted on TX/RX packet transfer completion events */
 	// REG_WRITE(DMA_MODE, FIELD_PREP(DMA_MODE_INTM, 1));
@@ -122,15 +122,12 @@ void dwmac_platform_init(const struct device *dev)
 	REG_WRITE(DMA_SYSBUS_MODE, DMA_SYSBUS_MODE_AAL);
 
 	/* MAC configuration */
-	REG_WRITE(MAC_CONF,
-		  /* 10/100 Mbps */
-		  MAC_CONF_PS |
-			  /* 100 Mbps */
-			  MAC_CONF_FES |
-			  /* full-duplex */
-			  MAC_CONF_DM |
-			  /* check CRS signal before transmitting in full-duplex mode */
-			  MAC_CONF_ECRSFD);
+	reg_val = REG_READ(MAC_CONF);
+	reg_val |= MAC_CONF_PS        /* 10/100 Mbps */
+		   | MAC_CONF_FES     /* 100 Mbps */
+		   | MAC_CONF_DM      /* full-duplex */
+		   | MAC_CONF_ECRSFD; /* check CRS signal before transmitting in full-duplex mode */
+	REG_WRITE(MAC_CONF, reg_val);
 
 	if (cfg->random_mac_addr) {
 		gen_random_mac(p->mac_addr, NXP_OUI_BYTE_0, NXP_OUI_BYTE_1, NXP_OUI_BYTE_2);
