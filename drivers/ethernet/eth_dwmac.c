@@ -118,6 +118,10 @@ static enum ethernet_hw_caps dwmac_caps(const struct device *dev)
 		caps |= ETHERNET_HW_TX_CHKSUM_OFFLOAD;
 	}
 
+#if defined(CONFIG_NET_VLAN)
+	caps |= ETHERNET_HW_VLAN;
+#endif
+
 	caps |= ETHERNET_PROMISC_MODE;
 
 	return caps;
