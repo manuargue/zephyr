@@ -18,6 +18,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/cache.h>
 #include <zephyr/net/ethernet.h>
 #include <zephyr/sys/barrier.h>
+#include <zephyr/sys/crc.h>
 #include <zephyr/drivers/ethernet/eth_dwmac_priv.h>
 #include <ethernet/eth_stats.h>
 
@@ -120,6 +121,10 @@ static enum ethernet_hw_caps dwmac_caps(const struct device *dev)
 
 #if defined(CONFIG_NET_VLAN)
 	caps |= ETHERNET_HW_VLAN;
+#endif
+
+#if defined(CONFIG_DWMAC_FILTER_MULTICAST)
+	caps |= ETHERNET_HW_FILTERING;
 #endif
 
 	caps |= ETHERNET_PROMISC_MODE;
@@ -484,6 +489,59 @@ static void dwmac_set_mac_addr(struct dwmac_priv *p, uint8_t *addr, int n)
 	REG_WRITE(MAC_ADDRESS_LOW(n), reg_val);
 }
 
+#if defined(CONFIG_DWMAC_FILTER_MULTICAST)
+static uint32_t bit_reverse(uint32_t val)
+{
+	uint32_t res = 0;
+	int i;
+
+	for (i = 0; i < 32; i++) {
+		if (val & BIT(i)) {
+			res |= BIT(31 - i);
+		}
+	}
+
+	return res;
+}
+
+/* Maximum MAC address hash table size (256 bits = 8 bytes) */
+#define MAC_HASH_TABLE_MAX_SIZE 8U
+#define MAC_HASH_TABLE_BIT(crc) ((crc) & GENMASK(4, 0))
+#define MAC_HASH_TABLE_IDX(crc) ((crc) >> 5U)
+
+static int dwmac_config_mac_filter(struct dwmac_priv *p,
+				   const struct ethernet_filter *filter)
+{
+	uint32_t hash_table_size;
+	uint32_t reg_val;
+	uint32_t crc;
+
+	hash_table_size = FIELD_GET(MAC_HW_FEATURE1_HASHTBLSZ, p->feature1);
+	__ASSERT(hash_table_size > 0,
+		 "MAC hash table not supported on this device");
+
+	/* The 6/7/8 MSB of the CRC in 64/128/256 bit hash, respectively,
+	 * are used to index the content of the hash table, and the 5 LSB
+	 * determine the bit within the register.
+	 */
+	crc = bit_reverse(crc32_ieee(filter->mac_address.addr,
+			  sizeof(struct net_eth_addr)));
+	crc >>= (27U - hash_table_size);
+	__ASSERT(MAC_HASH_TABLE_IDX(crc) < MAC_HASH_TABLE_MAX_SIZE,
+		 "Invalid MAC hash table register index");
+
+	reg_val = REG_READ(MAC_HASH_TABLE(MAC_HASH_TABLE_IDX(crc)));
+	if (filter->set) {
+		reg_val |= BIT(MAC_HASH_TABLE_BIT(crc));
+	} else {
+		reg_val &= ~BIT(MAC_HASH_TABLE_BIT(crc));
+	}
+	REG_WRITE(MAC_HASH_TABLE(MAC_HASH_TABLE_IDX(crc)), reg_val);
+
+	return 0;
+}
+#endif /* CONFIG_DWMAC_FILTER_MULTICAST */
+
 static int dwmac_set_config(const struct device *dev,
 			    enum ethernet_config_type type,
 			    const struct ethernet_config *config)
@@ -501,6 +559,12 @@ static int dwmac_set_config(const struct device *dev,
 		net_if_set_link_addr(p->iface, p->mac_addr,
 				     sizeof(p->mac_addr), NET_LINK_ETHERNET);
 		break;
+
+#if defined(CONFIG_DWMAC_FILTER_MULTICAST)
+	case ETHERNET_CONFIG_TYPE_FILTER:
+		dwmac_config_mac_filter(p, &config->filter);
+		break;
+#endif /* CONFIG_DWMAC_FILTER_MULTICAST */
 
 #if defined(CONFIG_NET_PROMISCUOUS_MODE)
 	case ETHERNET_CONFIG_TYPE_PROMISC_MODE:
@@ -527,6 +591,46 @@ static int dwmac_set_config(const struct device *dev,
 	return ret;
 }
 
+static inline void dwmac_mac_filter_init(struct dwmac_priv *p)
+{
+	uint32_t reg_val;
+
+	// 			enabled		disabled
+	// mcast hash		!RA !PR HMC	!HMC
+	// mcast fw all		PM		!RA !PR !PM !HMC
+	// bcast fw all		!DBF		!RA !PR DBF
+	// ucast hash		!RA !PR HUC	!HUC
+	// hash or perf		!RA !PR HPF	!HPF
+
+	reg_val = REG_READ(MAC_PKT_FILTER);
+
+	if (IS_ENABLED(CONFIG_DWMAC_FILTER_MULTICAST)) {
+		/* Enable multicast hash filter */
+		reg_val |= FIELD_PREP(MAC_PKT_FILTER_HMC, 1) |
+			FIELD_PREP(MAC_PKT_FILTER_PM, 0);
+	} else {
+		/* Pass all multicast */
+		reg_val |= FIELD_PREP(MAC_PKT_FILTER_HMC, 0) |
+			FIELD_PREP(MAC_PKT_FILTER_PM, 1);
+	}
+
+	if (IS_ENABLED(CONFIG_DWMAC_FILTER_BLOCK_BROADCAST)) {
+		reg_val |= FIELD_PREP(MAC_PKT_FILTER_DBF, 1);
+	} else {
+		/* Forward all broadcast packets */
+		reg_val |= FIELD_PREP(MAC_PKT_FILTER_DBF, 0);
+	}
+
+	if (IS_ENABLED(CONFIG_DWMAC_FILTER_RECEIVE_ALL)) {
+		/* Receive all packets regardless of other filters */
+		reg_val |= FIELD_PREP(MAC_PKT_FILTER_RA, 1);
+	} else {
+		reg_val |= FIELD_PREP(MAC_PKT_FILTER_RA, 0);
+	}
+
+	REG_WRITE(MAC_PKT_FILTER, reg_val);
+}
+
 static void dwmac_mac_init(struct dwmac_priv *p)
 {
 	uint32_t reg_val;
@@ -543,6 +647,8 @@ static void dwmac_mac_init(struct dwmac_priv *p)
 	 * Enable only queue 0 for generic traffic.
 	*/
 	REG_WRITE(MAC_RXQ_CTRL0, FIELD_PREP(MAC_RXQ_CTRL0_RXQ0EN, 0x2));
+
+	dwmac_mac_filter_init(p);
 }
 
 static void dwmac_dma_init(struct dwmac_priv *p)
