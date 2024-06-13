@@ -53,6 +53,7 @@
 #define SCTLR_A_BIT		BIT(1)
 #define SCTLR_C_BIT		BIT(2)
 #define SCTLR_I_BIT		BIT(12)
+#define SCTLR_FI_BIT		BIT(21)
 
 /* Hyp System Control Register */
 #define HSCTLR_RES1		(BIT(29) | BIT(28) | BIT(23) | \
@@ -73,6 +74,10 @@
 		     HACTLR_BUSTIMEOUTR_BIT | HACTLR_QOSR_BIT | \
 		     HACTLR_PERIPHPREGIONR | HACTLR_FLASHIFREGIONR | \
 		     HACTLR_CDBGDCI | HACTLR_CPUACTLR)
+
+/* CPU Auxiliary Control Register */
+#define CPUACTLR_OOODIVDIS_BIT	BIT(13)
+
 /* ARMv8 Timer */
 #define CNTV_CTL_ENABLE_BIT	BIT(0)
 #define CNTV_CTL_IMASK_BIT	BIT(1)

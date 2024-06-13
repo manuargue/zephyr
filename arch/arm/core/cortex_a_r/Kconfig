@@ -189,7 +189,41 @@ config ICACHE_LINE_SIZE
 	default 64 if CPU_CORTEX_R52
 	default 32
 
+config DISABLE_OOODIV
+	bool "Disable out-of-order completion of divide instructions"
+	depends on AARCH32_ARMV8_R
+	help
+	  This option disables out-of-order completion of divide instructions.
+	  Beware that disabling this feature might introduce a minimal
+	  performance overhead. Indicative measurements show that the performance
+	  of several known benchmarks are impacted by less than 0.1%.
+	  Note that if Zephyr boots in EL1, the EL2 software must grant EL1
+	  access to CPUACTLR for this setting to take effect.
+
+config ARM_ERRATUM_2918152
+	bool
+	depends on CPU_CORTEX_R52
+	select DISABLE_OOODIV if FAST_INTERRUPTS
+	help
+	  This option enable the first workaround of erratum 2918152, as
+	  described in Arm SDEN-857344, by disabling out-of-order completion of
+	  divide instructions.
+
 endif # CPU_AARCH32_CORTEX_R
+
+if CPU_AARCH32_CORTEX_A || CPU_AARCH32_CORTEX_R
+
+config FAST_INTERRUPTS
+	bool "Enable Arm Fast Interrupts"
+	depends on AARCH32_ARMV8_R || ARMV7_R || ARMV7_A
+	help
+	  This option enable Fast Interrupts which allow to reduce interrupt
+	  latency of the processor by disabling IMPLEMENTATION DEFINED
+	  performance features. Examples of methods that might be implemented to
+	  reduce interrupt latency are the abandoning of restartable external
+	  accesses or disabling Hit-Under-Miss functionality in a processor.
+
+endif # CPU_AARCH32_CORTEX_A || CPU_AARCH32_CORTEX_R
 
 config TEST_EXTRA_STACK_SIZE
 	default 1024 if SMP

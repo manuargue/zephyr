@@ -57,6 +57,9 @@ SECTION_SUBSEC_FUNC(TEXT, _reset_section, __start)
 
     /* Init HSCTLR see Armv8-R AArch32 architecture profile */
     ldr r0, =(HSCTLR_RES1 | SCTLR_I_BIT | SCTLR_C_BIT)
+#if defined(CONFIG_FAST_INTERRUPTS)
+    orr r0, #SCTLR_FI_BIT
+#endif
     mcr p15, 4, r0, c1, c0, 0
 
     /* Init HACTLR: Enable EL1 access to all IMP DEF registers */
@@ -265,6 +268,22 @@ _primary_core:
     /* SYS mode stack */
     msr CPSR_c, #(MODE_SYS | I_BIT | F_BIT)
     mov sp, r10
+
+#if defined(CONFIG_FAST_INTERRUPTS) && (defined(CONFIG_ARMV7_R) || defined(CONFIG_ARMV7_A))
+    dsb
+    isb
+    mrc p15, 0, r0, c1, c0, 0
+    orr r0, r0, #SCTLR_FI_BIT
+    mcr p15, 0, r0, c1, c0, 0
+    dsb
+    isb
+#endif
+
+#if defined(CONFIG_DISABLE_OOODIV)
+    mrrc p15, 0, r0, r1, c15
+    orr r1, #CPUACTLR_OOODIVDIS_BIT
+    mcrr p15, 0, r0, r1, c15
+#endif
 
 #if defined(CONFIG_PLATFORM_SPECIFIC_INIT)
     /* Execute platform-specific initialisation if applicable */
