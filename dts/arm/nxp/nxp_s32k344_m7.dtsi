@@ -1,5 +1,6 @@
 /*
  * Copyright 2023 NXP
+ * Copyright 2024 Manuel Arguelles
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -857,6 +858,22 @@
 		trgmux: trgmux@40080000 {
 			compatible = "nxp,s32-trgmux";
 			reg = <0x40080000 0x4000>;
+			status = "disabled";
+		};
+
+		stm0: stm@40274000 {
+			compatible = "nxp,s32-sys-timer";
+			reg = <0x40274000 0x10000>;
+			interrupts = <39 0>;
+			clocks = <&clock NXP_S32_STM0_CLK>;
+			status = "disabled";
+		};
+
+		stm1: stm@40474000 {
+			compatible = "nxp,s32-sys-timer";
+			reg = <0x40474000 0x10000>;
+			interrupts = <40 0>;
+			clocks = <&clock NXP_S32_STM1_CLK>;
 			status = "disabled";
 		};
 	};
