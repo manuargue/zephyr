@@ -4,7 +4,7 @@
 
 description: Software Watchdog Timer (SWT)
 
-compatible: "nxp,s32-swt"
+compatible: "nxp,swt"
 
 include: base.yaml
 
