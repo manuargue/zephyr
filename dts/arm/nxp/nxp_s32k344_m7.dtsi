@@ -1,5 +1,6 @@
 /*
  * Copyright 2023 NXP
+ * Copyright 2024 Manuel Arguelles
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -858,6 +859,15 @@
 			compatible = "nxp,s32-trgmux";
 			reg = <0x40080000 0x4000>;
 			status = "disabled";
+		};
+
+		swt0: watchdog@40270000 {
+			compatible = "nxp,s32-swt";
+			reg = <0x40270000 0x4000>;
+			interrupts = <42 0>;
+			clocks = <&clock NXP_S32_SIRC_CLK>;
+			service-mode = "fixed";
+			status = "okay";
 		};
 	};
 };
