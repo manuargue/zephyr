@@ -15,8 +15,8 @@
  */
 #if DT_NODE_HAS_STATUS(DT_ALIAS(watchdog0), okay)
 #define WDT_NODE DT_ALIAS(watchdog0)
-#elif DT_HAS_COMPAT_STATUS_OKAY(nxp_swt)
-#define WDT_NODE DT_INST(0, nxp_swt)
+#elif DT_HAS_COMPAT_STATUS_OKAY(nxp_s32_swt)
+#define WDT_NODE DT_INST(0, nxp_s32_swt)
 #endif
 
 #define WDT_FEED_TRIES		2

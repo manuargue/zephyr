@@ -49,7 +49,7 @@
 		};
 
 		swt0: watchdog@76800000 {
-			compatible = "nxp,swt";
+			compatible = "nxp,s32-swt";
 			reg = <0x76800000 0x10000>;
 			interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
 			clocks = <&clock NXP_S32_FIRC_CLK>;
@@ -58,7 +58,7 @@
 		};
 
 		swt1: watchdog@76810000 {
-			compatible = "nxp,swt";
+			compatible = "nxp,s32-swt";
 			reg = <0x76810000 0x10000>;
 			interrupts = <GIC_SPI 9 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
 			clocks = <&clock NXP_S32_FIRC_CLK>;
@@ -67,7 +67,7 @@
 		};
 
 		swt2: watchdog@76a20000 {
-			compatible = "nxp,swt";
+			compatible = "nxp,s32-swt";
 			reg = <0x76a20000 0x10000>;
 			interrupts = <GIC_SPI 10 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
 			clocks = <&clock NXP_S32_FIRC_CLK>;
@@ -76,7 +76,7 @@
 		};
 
 		swt3: watchdog@76a30000 {
-			compatible = "nxp,swt";
+			compatible = "nxp,s32-swt";
 			reg = <0x76a30000 0x10000>;
 			interrupts = <GIC_SPI 11 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
 			clocks = <&clock NXP_S32_FIRC_CLK>;
@@ -85,7 +85,7 @@
 		};
 
 		swt4: watchdog@76940000 {
-			compatible = "nxp,swt";
+			compatible = "nxp,s32-swt";
 			reg = <0x76940000 0x10000>;
 			interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
 			clocks = <&clock NXP_S32_FIRC_CLK>;

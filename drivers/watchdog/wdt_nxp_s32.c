@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT nxp_swt
+#define DT_DRV_COMPAT nxp_s32_swt
 
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/watchdog.h>
@@ -14,7 +14,7 @@
 
 #define LOG_LEVEL CONFIG_WDT_LOG_LEVEL
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(nxp_swt);
+LOG_MODULE_REGISTER(swt_nxp_s32);
 
 /*
  * Software Watchdog Timer (SWT) register definitions
@@ -88,13 +88,13 @@ enum swt_lock_mode {
 	SWT_HARD_LOCK = 2,
 };
 
-struct nxp_swt_timeout {
+struct swt_nxp_s32_timeout {
 	uint32_t period;
 	uint32_t window_start;
 	bool window_mode;
 };
 
-struct nxp_swt_config {
+struct swt_nxp_s32_config {
 	mem_addr_t base;
 	const struct device *clock_dev;
 	clock_control_subsys_t clock_subsys;
@@ -105,13 +105,13 @@ struct nxp_swt_config {
 	bool reset_on_invalid_access;
 };
 
-struct nxp_swt_data {
+struct swt_nxp_s32_data {
 	wdt_callback_t callback;
 	bool timeout_valid;
-	struct nxp_swt_timeout timeout;
+	struct swt_nxp_s32_timeout timeout;
 };
 
-static void swt_lock(const struct nxp_swt_config *config)
+static void swt_lock(const struct swt_nxp_s32_config *config)
 {
 	switch (config->lock_mode) {
 	case SWT_HARD_LOCK:
@@ -127,7 +127,7 @@ static void swt_lock(const struct nxp_swt_config *config)
 	}
 }
 
-static int swt_unlock(const struct nxp_swt_config *config)
+static int swt_unlock(const struct swt_nxp_s32_config *config)
 {
 	int err = 0;
 
@@ -153,15 +153,15 @@ static int swt_unlock(const struct nxp_swt_config *config)
 	return err;
 }
 
-static inline uint16_t swt_gen_service_key(const struct nxp_swt_config *config)
+static inline uint16_t swt_gen_service_key(const struct swt_nxp_s32_config *config)
 {
 	return (uint16_t)((FIELD_GET(SWT_SK_SK, REG_READ(SWT_SK)) * 17U) + 3U);
 }
 
-static int nxp_swt_setup(const struct device *dev, uint8_t options)
+static int swt_nxp_s32_setup(const struct device *dev, uint8_t options)
 {
-	const struct nxp_swt_config *config = dev->config;
-	struct nxp_swt_data *data = dev->data;
+	const struct swt_nxp_s32_config *config = dev->config;
+	struct swt_nxp_s32_data *data = dev->data;
 	int err;
 	uint32_t reg_val;
 
@@ -204,10 +204,10 @@ static int nxp_swt_setup(const struct device *dev, uint8_t options)
 	return 0;
 }
 
-static int nxp_swt_disable(const struct device *dev)
+static int swt_nxp_s32_disable(const struct device *dev)
 {
-	const struct nxp_swt_config *config = dev->config;
-	struct nxp_swt_data *data = dev->data;
+	const struct swt_nxp_s32_config *config = dev->config;
+	struct swt_nxp_s32_data *data = dev->data;
 	int err;
 
 	if (!FIELD_GET(SWT_CR_WEN, REG_READ(SWT_CR))) {
@@ -231,10 +231,11 @@ static int nxp_swt_disable(const struct device *dev)
 	return 0;
 }
 
-static int nxp_swt_install_timeout(const struct device *dev, const struct wdt_timeout_cfg *cfg)
+static int swt_nxp_s32_install_timeout(const struct device *dev,
+				       const struct wdt_timeout_cfg *cfg)
 {
-	const struct nxp_swt_config *config = dev->config;
-	struct nxp_swt_data *data = dev->data;
+	const struct swt_nxp_s32_config *config = dev->config;
+	struct swt_nxp_s32_data *data = dev->data;
 	bool window_mode = false;
 	uint32_t window = 0;
 	uint32_t period;
@@ -275,9 +276,9 @@ static int nxp_swt_install_timeout(const struct device *dev, const struct wdt_ti
 	return 0;
 }
 
-static int nxp_swt_feed(const struct device *dev, int channel)
+static int swt_nxp_s32_feed(const struct device *dev, int channel)
 {
-	const struct nxp_swt_config *config = dev->config;
+	const struct swt_nxp_s32_config *config = dev->config;
 	bool match_unlock_seq = false;
 
 	ARG_UNUSED(channel);
@@ -317,10 +318,10 @@ static int nxp_swt_feed(const struct device *dev, int channel)
 	return 0;
 }
 
-static void nxp_swt_isr(const struct device *dev)
+static void swt_nxp_s32_isr(const struct device *dev)
 {
-	const struct nxp_swt_config *config = dev->config;
-	struct nxp_swt_data *data = dev->data;
+	const struct swt_nxp_s32_config *config = dev->config;
+	struct swt_nxp_s32_data *data = dev->data;
 	uint32_t reg_val;
 
 	if (FIELD_GET(SWT_IR_TIF, REG_READ(SWT_IR)) && FIELD_GET(SWT_CR_ITR, REG_READ(SWT_CR))) {
@@ -336,9 +337,9 @@ static void nxp_swt_isr(const struct device *dev)
 	}
 }
 
-static int nxp_swt_init(const struct device *dev)
+static int swt_nxp_s32_init(const struct device *dev)
 {
-	const struct nxp_swt_config *config = dev->config;
+	const struct swt_nxp_s32_config *config = dev->config;
 	int err;
 
 	if (!device_is_ready(config->clock_dev)) {
@@ -358,17 +359,17 @@ static int nxp_swt_init(const struct device *dev)
 	return 0;
 }
 
-static const struct wdt_driver_api nxp_swt_driver_api = {
-	.setup = nxp_swt_setup,
-	.disable = nxp_swt_disable,
-	.install_timeout = nxp_swt_install_timeout,
-	.feed = nxp_swt_feed,
+static const struct wdt_driver_api swt_nxp_s32_driver_api = {
+	.setup = swt_nxp_s32_setup,
+	.disable = swt_nxp_s32_disable,
+	.install_timeout = swt_nxp_s32_install_timeout,
+	.feed = swt_nxp_s32_feed,
 };
 
-#define NXP_SWT_DEVICE_INIT(n)								\
-	static struct nxp_swt_data nxp_swt_data_##n;					\
+#define SWT_NXP_S32_DEVICE_INIT(n)							\
+	static struct swt_nxp_s32_data swt_nxp_s32_data_##n;				\
 											\
-	static const struct nxp_swt_config nxp_swt_config_##n = {			\
+	static const struct swt_nxp_s32_config swt_nxp_s32_config_##n = {		\
 		.base = DT_INST_REG_ADDR(n),						\
 		.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(n)),			\
 		.clock_subsys = (clock_control_subsys_t)DT_INST_CLOCKS_CELL(n, name),	\
@@ -379,17 +380,17 @@ static const struct wdt_driver_api nxp_swt_driver_api = {
 		.lock_mode = DT_INST_ENUM_IDX(n, lock_mode),				\
 	};										\
 											\
-	static int nxp_swt_##n##_init(const struct device *dev)				\
+	static int swt_nxp_s32_##n##_init(const struct device *dev)			\
 	{										\
 		int err;								\
 											\
-		err = nxp_swt_init(dev);						\
+		err = swt_nxp_s32_init(dev);						\
 		if (err) {								\
 			return err;							\
 		}									\
 											\
 		IRQ_CONNECT(DT_INST_IRQN(n), DT_INST_IRQ(n, priority),			\
-			    nxp_swt_isr, DEVICE_DT_INST_GET(n),				\
+			    swt_nxp_s32_isr, DEVICE_DT_INST_GET(n),			\
 			    COND_CODE_1(DT_INST_IRQ_HAS_CELL(n, flags),			\
 					(DT_INST_IRQ(n, flags)), (0)));			\
 		irq_enable(DT_INST_IRQN(n));						\
@@ -398,12 +399,12 @@ static const struct wdt_driver_api nxp_swt_driver_api = {
 	}										\
 											\
 	DEVICE_DT_INST_DEFINE(n,							\
-			 nxp_swt_##n##_init,						\
+			 swt_nxp_s32_##n##_init,					\
 			 NULL,								\
-			 &nxp_swt_data_##n,						\
-			 &nxp_swt_config_##n,						\
+			 &swt_nxp_s32_data_##n,						\
+			 &swt_nxp_s32_config_##n,					\
 			 POST_KERNEL,							\
 			 CONFIG_KERNEL_INIT_PRIORITY_DEVICE,				\
-			 &nxp_swt_driver_api);
+			 &swt_nxp_s32_driver_api);
 
-DT_INST_FOREACH_STATUS_OKAY(NXP_SWT_DEVICE_INIT)
+DT_INST_FOREACH_STATUS_OKAY(SWT_NXP_S32_DEVICE_INIT)
