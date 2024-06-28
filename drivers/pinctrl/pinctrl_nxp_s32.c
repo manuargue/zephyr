@@ -8,52 +8,17 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/pinctrl.h>
 
-// TODO: this fixup is already done in the pinmuxing script generator
+/* SIUL2 register definitions */
+#define SIUL2_MSCR(n) (0x240 + 4 * (n))
+#define SIUL2_IMCR(n) (0xA40 + 4 * (n))
 
-// #if defined(CONFIG_SOC_SERIES_S32K3)
-// #define SIUL2_0_IMCR_IDX_END 378
-// #elif defined(CONFIG_SOC_SERIES_S32ZE)
-// #define SIUL2_0_IMCR_IDX_END 89
-// #define SIUL2_1_IMCR_IDX_END 209
-// #define SIUL2_3_IMCR_IDX_END 23
-// #define SIUL2_4_IMCR_IDX_END 371
-// #define SIUL2_5_IMCR_IDX_END 474
-// #else
-// #error "platform not supported"
-// #endif /* CONFIG_SOC_SERIES_S32K3 */
+#define SIUL2_MSCR_MAX_IDX 2048
+#define SIUL2_IMCR_MAX_IDX 512
 
-// static inline void siul2_get_imcr_reg(uint32_t *imcr_idx, uint8_t *siul2_idx)
-// {
-// #if defined(CONFIG_SOC_SERIES_S32K3)
-// 	if (*imcr_idx < SIUL2_IMCR_MAX_IDX) {
-// 		*siul2_idx = 0;
-// 	} else {
-// 		*siul2_idx = 1;
-// 		*imcr_idx = imcr_idx - SIUL2_IMCR_MAX_IDX;
-// 	}
 
-// #elif defined(CONFIG_SOC_SERIES_S32ZE)
-// 	if (*imcr_idx < SIUL2_IMCR_MAX_IDX) {
-// 		if (*imcr_idx <= SIUL2_0_IMCR_IDX_END) {
-// 			*siul2_idx = 0;
-// 		} else if (*imcr_idx <= SIUL2_1_IMCR_IDX_END) {
-// 			*siul2_idx = 1;
-// 		} else if (*imcr_idx <= SIUL2_4_IMCR_IDX_END) {
-// 			*siul2_idx = 4;
-// 		} else if (*imcr_idx <= SIUL2_5_IMCR_IDX_END) {
-// 			*siul2_idx = 5;
-// 		}
-// 	} else {
-// 		*siul2_idx = 3;
-// 		*imcr_idx = *imcr_idx - SIUL2_IMCR_MAX_IDX;
-// 	}
-
-// #else
-// #error "platform not supported"
-// #endif /* CONFIG_SOC_SERIES_S32K3 */
-// }
-
-/** Utility macro that expands to the SIUL2 base address if it exists */
+/* Utility macro that expands to the SIUL2 base address if it exists or zero.
+ * Note that some devices may have instance gaps, hence the need to keep them in the array.
+ */
 #define SIUL2_BASE_OR_ZERO(nodelabel)                                                              \
 	COND_CODE_1(DT_NODE_EXISTS(DT_NODELABEL(nodelabel)),                                       \
 		    (DT_REG_ADDR(DT_NODELABEL(nodelabel))), (0U))
