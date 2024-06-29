@@ -1,5 +1,6 @@
 /*
  * Copyright 2022-2023 NXP
+ * Copyright 2024 Manuel Arguelles
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,11 +10,9 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/gpio/gpio_utils.h>
+#include <zephyr/drivers/pinctrl.h>
 #include <zephyr/dt-bindings/gpio/nxp-s32-gpio.h>
 #include <zephyr/logging/log.h>
-
-#include <Siul2_Port_Ip.h>
-#include <Siul2_Dio_Ip.h>
 
 LOG_MODULE_REGISTER(nxp_s32_gpio, CONFIG_GPIO_LOG_LEVEL);
 
@@ -23,6 +22,19 @@ LOG_MODULE_REGISTER(nxp_s32_gpio, CONFIG_GPIO_LOG_LEVEL);
 #ifdef CONFIG_NXP_S32_WKPU
 #include <zephyr/drivers/interrupt_controller/intc_wkpu_nxp_s32.h>
 #endif
+
+/* SIUL2 register definitions */
+/* With offsets from MSCR */
+#define SIUL2_MSCR(n) (4 * (n))
+/* With offsets from PGPDO */
+#define SIUL2_PGPDO   0
+#define SIUL2_PGPDI   0x40
+
+/* Handy accessors */
+#define GPIO_READ(r)      sys_read16(config->gpio_base + (r))
+#define GPIO_WRITE(r, v)  sys_write16((v), config->gpio_base + (r))
+#define PORT_READ(p)      sys_read32(config->port_base + SIUL2_MSCR(p))
+#define PORT_WRITE(p, v)  sys_write32((v), config->port_base + SIUL2_MSCR(p))
 
 #if defined(CONFIG_NXP_S32_EIRQ) || defined(CONFIG_NXP_S32_WKPU)
 #define NXP_S32_GPIO_LINE_NOT_FOUND 0xff
@@ -43,8 +55,8 @@ struct gpio_nxp_s32_config {
 	/* gpio_driver_config needs to be first */
 	struct gpio_driver_config common;
 
-	Siul2_Dio_Ip_GpioType *gpio_base;
-	Siul2_Port_Ip_PortType *port_base;
+	mem_addr_t gpio_base;
+	mem_addr_t port_base;
 
 #ifdef CONFIG_NXP_S32_EIRQ
 	struct gpio_nxp_s32_irq_config *eirq_info;
@@ -66,13 +78,24 @@ struct gpio_nxp_s32_data {
 #endif
 };
 
+static inline uint16_t reverse_bits_16(uint16_t value)
+{
+	uint8_t i;
+	uint16_t ret = 0U;
+
+	for (i = 0U; i < 8U; i++) {
+		ret |= (FIELD_GET(BIT(i), value) << (15U - i)) |
+		       (FIELD_GET(BIT(15 - i), value) << i);
+	}
+	return ret;
+}
+
 static int nxp_s32_gpio_configure(const struct device *dev, gpio_pin_t pin,
 				  gpio_flags_t flags)
 {
-	const struct gpio_nxp_s32_config *port_config = dev->config;
-	Siul2_Dio_Ip_GpioType *gpio_base = port_config->gpio_base;
-	Siul2_Port_Ip_PortType *port_base = port_config->port_base;
-	Siul2_Port_Ip_PortPullConfig pull_config;
+	const struct gpio_nxp_s32_config *config = dev->config;
+	uint32_t mscr_val;
+	uint32_t pgpdo_val;
 
 	if ((flags & GPIO_SINGLE_ENDED) != 0) {
 		return -ENOTSUP;
@@ -88,43 +111,31 @@ static int nxp_s32_gpio_configure(const struct device *dev, gpio_pin_t pin,
 	}
 #endif
 
-	switch (flags & GPIO_DIR_MASK) {
-	case GPIO_INPUT:
-		Siul2_Port_Ip_SetPinDirection(port_base, pin, SIUL2_PORT_IN);
-		break;
-	case GPIO_OUTPUT:
-		Siul2_Port_Ip_SetPinDirection(port_base, pin, SIUL2_PORT_OUT);
-		break;
-	case GPIO_INPUT | GPIO_OUTPUT:
-		Siul2_Port_Ip_SetPinDirection(port_base, pin, SIUL2_PORT_IN_OUT);
-		break;
-	default:
-		Siul2_Port_Ip_SetPinDirection(port_base, pin, SIUL2_PORT_HI_Z);
-		break;
-	}
+	mscr_val = PORT_READ(pin);
+	mscr_val &= ~(SIUL2_MSCR_SSS | SIUL2_MSCR_OBE | SIUL2_MSCR_IBE |
+		     SIUL2_MSCR_PUE | SIUL2_MSCR_PUS);
 
-	Siul2_Port_Ip_SetOutputBuffer(port_base, pin,
-					(flags & GPIO_OUTPUT), PORT_MUX_AS_GPIO);
+	if (flags & GPIO_OUTPUT) {
+		mscr_val |= SIUL2_MSCR_OBE;
 
-	switch (flags & (GPIO_OUTPUT | GPIO_OUTPUT_INIT_HIGH | GPIO_OUTPUT_INIT_LOW)) {
-	case GPIO_OUTPUT_HIGH:
-		Siul2_Dio_Ip_WritePin(gpio_base, pin, 1);
-		break;
-	case GPIO_OUTPUT_LOW:
-		Siul2_Dio_Ip_WritePin(gpio_base, pin, 0);
-		break;
-	default:
-		break;
+		pgpdo_val = GPIO_READ(SIUL2_PGPDO);
+		if (flags & GPIO_OUTPUT_INIT_HIGH) {
+			pgpdo_val |= BIT(15 - pin);
+		} else if (flags & GPIO_OUTPUT_INIT_LOW) {
+			pgpdo_val &= ~BIT(15 - pin);
+		}
+		GPIO_WRITE(SIUL2_PGPDO, pgpdo_val);
 	}
-
-	if ((flags & GPIO_PULL_UP) != 0) {
-		pull_config = PORT_INTERNAL_PULL_UP_ENABLED;
-	} else if ((flags & GPIO_PULL_DOWN) != 0) {
-		pull_config = PORT_INTERNAL_PULL_DOWN_ENABLED;
-	} else {
-		pull_config = PORT_INTERNAL_PULL_NOT_ENABLED;
+	if (flags & GPIO_INPUT) {
+		mscr_val |= SIUL2_MSCR_IBE;
 	}
-	Siul2_Port_Ip_SetPullSel(port_base, pin, pull_config);
+	if (flags & (GPIO_PULL_UP | GPIO_PULL_DOWN)) {
+		mscr_val |= SIUL2_MSCR_PUE;
+		if (flags & GPIO_PULL_UP) {
+			mscr_val |= SIUL2_MSCR_PUS;
+		}
+	}
+	PORT_WRITE(pin, mscr_val);
 
 	return 0;
 }
@@ -133,7 +144,7 @@ static int nxp_s32_gpio_port_get_raw(const struct device *port, uint32_t *value)
 {
 	const struct gpio_nxp_s32_config *config = port->config;
 
-	*value = Siul2_Dio_Ip_ReadPins(config->gpio_base);
+	*value = reverse_bits_16(GPIO_READ(SIUL2_PGPDI));
 
 	return 0;
 }
@@ -143,11 +154,11 @@ static int nxp_s32_gpio_port_set_masked_raw(const struct device *port,
 					    gpio_port_value_t value)
 {
 	const struct gpio_nxp_s32_config *config = port->config;
-	Siul2_Dio_Ip_GpioType *gpio_base = config->gpio_base;
-	gpio_port_pins_t pins_value = Siul2_Dio_Ip_GetPinsOutput(gpio_base);
+	gpio_port_pins_t pins_value;
 
+	pins_value = reverse_bits_16(GPIO_READ(SIUL2_PGPDO));
 	pins_value = (pins_value & ~mask) | (mask & value);
-	Siul2_Dio_Ip_WritePins(gpio_base, pins_value);
+	GPIO_WRITE(SIUL2_PGPDO, reverse_bits_16(pins_value));
 
 	return 0;
 }
@@ -156,8 +167,11 @@ static int nxp_s32_gpio_port_set_bits_raw(const struct device *port,
 					  gpio_port_pins_t pins)
 {
 	const struct gpio_nxp_s32_config *config = port->config;
+	uint16_t reg_val;
 
-	Siul2_Dio_Ip_SetPins(config->gpio_base, pins);
+	reg_val = GPIO_READ(SIUL2_PGPDO);
+	reg_val |= reverse_bits_16(pins);
+	GPIO_WRITE(SIUL2_PGPDO, reg_val);
 
 	return 0;
 }
@@ -166,8 +180,11 @@ static int nxp_s32_gpio_port_clear_bits_raw(const struct device *port,
 					    gpio_port_pins_t pins)
 {
 	const struct gpio_nxp_s32_config *config = port->config;
+	uint16_t reg_val;
 
-	Siul2_Dio_Ip_ClearPins(config->gpio_base, pins);
+	reg_val = GPIO_READ(SIUL2_PGPDO);
+	reg_val &= ~reverse_bits_16(pins);
+	GPIO_WRITE(SIUL2_PGPDO, reg_val);
 
 	return 0;
 }
@@ -176,8 +193,11 @@ static int nxp_s32_gpio_port_toggle_bits(const struct device *port,
 					 gpio_port_pins_t pins)
 {
 	const struct gpio_nxp_s32_config *config = port->config;
+	uint16_t reg_val;
 
-	Siul2_Dio_Ip_TogglePins(config->gpio_base, pins);
+	reg_val = GPIO_READ(SIUL2_PGPDO);
+	reg_val ^= reverse_bits_16(pins);
+	GPIO_WRITE(SIUL2_PGPDO, reg_val);
 
 	return 0;
 }
@@ -391,34 +411,34 @@ static int nxp_s32_gpio_pin_get_config(const struct device *dev,
 				       gpio_flags_t *out_flags)
 {
 	const struct gpio_nxp_s32_config *config = dev->config;
-	Siul2_Dio_Ip_GpioType *gpio_base = config->gpio_base;
-	Siul2_Port_Ip_PortType *port_base = config->port_base;
-	Siul2_Dio_Ip_PinsChannelType pins_output;
+	uint16_t pins_output;
+	uint32_t mscr_val;
 	gpio_flags_t flags = 0;
 
-	if ((port_base->MSCR[pin] & SIUL2_MSCR_IBE_MASK) != 0) {
+	mscr_val = PORT_READ(pin);
+	if ((mscr_val & SIUL2_MSCR_IBE) != 0) {
 		flags |= GPIO_INPUT;
 	}
 
-	if ((port_base->MSCR[pin] & SIUL2_MSCR_OBE_MASK) != 0) {
+	if ((mscr_val & SIUL2_MSCR_OBE) != 0) {
 		flags |= GPIO_OUTPUT;
 
-		pins_output = Siul2_Dio_Ip_GetPinsOutput(gpio_base);
-		if ((pins_output & BIT(pin)) != 0) {
+		pins_output = GPIO_READ(SIUL2_PGPDO);
+		if ((pins_output & BIT(15 - pin)) != 0) {
 			flags |= GPIO_OUTPUT_HIGH;
 		} else {
 			flags |= GPIO_OUTPUT_LOW;
 		}
 
-#ifdef FEATURE_SIUL2_PORT_IP_HAS_OPEN_DRAIN
-		if ((port_base->MSCR[pin] & SIUL2_MSCR_ODE_MASK) != 0) {
+#if defined(SIUL2_MSCR_ODE)
+		if ((mscr_val & SIUL2_MSCR_ODE) != 0) {
 			flags |= GPIO_OPEN_DRAIN;
 		}
-#endif /* FEATURE_SIUL2_PORT_IP_HAS_OPEN_DRAIN */
+#endif /* SIUL2_MSCR_ODE */
 	}
 
-	if ((port_base->MSCR[pin] & SIUL2_MSCR_PUE_MASK) != 0) {
-		if ((port_base->MSCR[pin] & SIUL2_MSCR_PUS_MASK) != 0) {
+	if ((mscr_val & SIUL2_MSCR_PUE) != 0) {
+		if ((mscr_val & SIUL2_MSCR_PUS) != 0) {
 			flags |= GPIO_PULL_UP;
 		} else {
 			flags |= GPIO_PULL_DOWN;
@@ -438,7 +458,6 @@ static int nxp_s32_gpio_port_get_direction(const struct device *dev,
 					   gpio_port_pins_t *outputs)
 {
 	const struct gpio_nxp_s32_config *config = dev->config;
-	Siul2_Port_Ip_PortType *port_base = config->port_base;
 	gpio_port_pins_t ip = 0;
 	gpio_port_pins_t op = 0;
 	uint32_t pin;
@@ -448,7 +467,7 @@ static int nxp_s32_gpio_port_get_direction(const struct device *dev,
 	if (inputs != NULL) {
 		while (map) {
 			pin = find_lsb_set(map) - 1;
-			ip |= (!!(port_base->MSCR[pin] & SIUL2_MSCR_IBE_MASK)) * BIT(pin);
+			ip |= (!!(PORT_READ(pin) & SIUL2_MSCR_IBE)) * BIT(pin);
 			map &= ~BIT(pin);
 		}
 
@@ -458,7 +477,7 @@ static int nxp_s32_gpio_port_get_direction(const struct device *dev,
 	if (outputs != NULL) {
 		while (map) {
 			pin = find_lsb_set(map) - 1;
-			op |= (!!(port_base->MSCR[pin] & SIUL2_MSCR_OBE_MASK)) * BIT(pin);
+			op |= (!!(PORT_READ(pin) & SIUL2_MSCR_OBE)) * BIT(pin);
 			map &= ~BIT(pin);
 		}
 
@@ -512,12 +531,6 @@ static const struct gpio_driver_api gpio_nxp_s32_driver_api = {
 		(GPIO_PORT_PIN_MASK_FROM_DT_INST(n)				\
 			& ~(GPIO_NXP_S32_RESERVED_PIN_MASK(n))),		\
 		(GPIO_PORT_PIN_MASK_FROM_DT_INST(n)))
-
-#define GPIO_NXP_S32_REG_ADDR(n)						\
-	((Siul2_Dio_Ip_GpioType *)DT_INST_REG_ADDR_BY_NAME(n, pgpdo))
-
-#define GPIO_NXP_S32_PORT_REG_ADDR(n)						\
-	((Siul2_Port_Ip_PortType *)DT_INST_REG_ADDR_BY_NAME(n, mscr))
 
 #ifdef CONFIG_NXP_S32_EIRQ
 #define GPIO_NXP_S32_EIRQ_NODE(n)						\
@@ -587,8 +600,8 @@ static const struct gpio_driver_api gpio_nxp_s32_driver_api = {
 		.common = {							\
 			.port_pin_mask = GPIO_NXP_S32_PORT_PIN_MASK(n),		\
 		},								\
-		.gpio_base = GPIO_NXP_S32_REG_ADDR(n),				\
-		.port_base = GPIO_NXP_S32_PORT_REG_ADDR(n),			\
+		.gpio_base = DT_INST_REG_ADDR_BY_NAME(n, pgpdo),		\
+		.port_base = DT_INST_REG_ADDR_BY_NAME(n, mscr),			\
 		GPIO_NXP_S32_GET_EIRQ_INFO(n)					\
 		GPIO_NXP_S32_GET_WKPU_INFO(n)					\
 	};									\
