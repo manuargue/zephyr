@@ -227,28 +227,18 @@ static void nxp_s32_gpio_isr(uint8_t pin, void *arg)
 }
 
 #if defined(CONFIG_NXP_S32_EIRQ)
-static int nxp_s32_gpio_eirq_get_trigger(Siul2_Icu_Ip_EdgeType *edge_type,
-					 enum gpio_int_mode mode,
+static int nxp_s32_gpio_eirq_get_trigger(enum nxp_siul2_eirq_trigger *eirq_trigger,
 					 enum gpio_int_trig trigger)
 {
-	if (mode == GPIO_INT_MODE_DISABLED) {
-		*edge_type = SIUL2_ICU_DISABLE;
-		return 0;
-	}
-
-	if (mode == GPIO_INT_MODE_LEVEL) {
-		return -ENOTSUP;
-	}
-
 	switch (trigger) {
 	case GPIO_INT_TRIG_LOW:
-		*edge_type = SIUL2_ICU_FALLING_EDGE;
+		*eirq_trigger = NXP_SIUL2_EIRQ_FALLING_EDGE;
 		break;
 	case GPIO_INT_TRIG_HIGH:
-		*edge_type = SIUL2_ICU_RISING_EDGE;
+		*eirq_trigger = NXP_SIUL2_EIRQ_RISING_EDGE;
 		break;
 	case GPIO_INT_TRIG_BOTH:
-		*edge_type = SIUL2_ICU_BOTH_EDGES;
+		*eirq_trigger = NXP_SIUL2_EIRQ_BOTH_EDGES;
 		break;
 	default:
 		return -ENOTSUP;
@@ -265,37 +255,39 @@ static int nxp_s32_gpio_config_eirq(const struct device *dev,
 	const struct gpio_nxp_s32_config *config = dev->config;
 	const struct gpio_nxp_s32_irq_config *irq_cfg = config->eirq_info;
 	uint8_t irq_line;
-	Siul2_Icu_Ip_EdgeType edge_type;
+	enum nxp_siul2_eirq_trigger eirq_trigger;
 
 	if (irq_cfg == NULL) {
 		LOG_ERR("external interrupt controller not available or enabled");
 		return -ENOTSUP;
 	}
 
-	if (nxp_s32_gpio_eirq_get_trigger(&edge_type, mode, trig)) {
-		LOG_ERR("trigger or mode not supported");
+	if (mode == GPIO_INT_MODE_LEVEL) {
 		return -ENOTSUP;
 	}
 
 	irq_line = nxp_s32_gpio_pin_to_line(irq_cfg, pin);
 	if (irq_line == NXP_S32_GPIO_LINE_NOT_FOUND) {
-		if (edge_type == SIUL2_ICU_DISABLE) {
+		if (mode == GPIO_INT_MODE_DISABLED) {
 			return 0;
 		}
 		LOG_ERR("pin %d cannot be used for external interrupt", pin);
 		return -ENOTSUP;
 	}
 
-	if (edge_type == SIUL2_ICU_DISABLE) {
-		eirq_nxp_s32_disable_interrupt(irq_cfg->ctrl, irq_line);
-		eirq_nxp_s32_unset_callback(irq_cfg->ctrl, irq_line);
+	if (mode == GPIO_INT_MODE_DISABLED) {
+		nxp_siul2_eirq_disable_interrupt(irq_cfg->ctrl, irq_line);
+		nxp_siul2_eirq_unset_callback(irq_cfg->ctrl, irq_line);
 	} else {
-		if (eirq_nxp_s32_set_callback(irq_cfg->ctrl, irq_line,
-					nxp_s32_gpio_isr, pin, (void *)dev)) {
+		if (nxp_s32_gpio_eirq_get_trigger(&eirq_trigger, trig)) {
+			return -ENOTSUP;
+		}
+		if (nxp_siul2_eirq_set_callback(irq_cfg->ctrl, irq_line, pin,
+					nxp_s32_gpio_isr, (void *)dev)) {
 			LOG_ERR("pin %d is already in use", pin);
 			return -EBUSY;
 		}
-		eirq_nxp_s32_enable_interrupt(irq_cfg->ctrl, irq_line, edge_type);
+		nxp_siul2_eirq_enable_interrupt(irq_cfg->ctrl, irq_line, eirq_trigger);
 	}
 
 	return 0;

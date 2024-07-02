@@ -1,69 +1,81 @@
 /*
  * Copyright 2022 NXP
+ * Copyright 2024 Manuel Arguelles
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 /**
- * @brief Driver for External interrupt/event controller in NXP S32 MCUs
- *
+ * @brief Driver for NXP SIUL2 EIRQ external interrupt/event controller
  */
 
 #ifndef ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER_INTC_EIRQ_NXP_S32_H_
 #define ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER_INTC_EIRQ_NXP_S32_H_
 
-#include <Siul2_Icu_Ip.h>
-
-/* Wrapper callback for EIRQ line */
-typedef void (*eirq_nxp_s32_callback_t)(uint8_t pin, void *arg);
+/** NXP SIUL2 EIRQ callback */
+typedef void (*nxp_siul2_eirq_callback_t)(uint8_t pin, void *arg);
 
 /**
- * @brief Unset EIRQ callback for line
- *
- * @param dev EIRQ device
- * @param line EIRQ line
+ * @brief NXP SIUL2 EIRQ pin activation type
  */
-void eirq_nxp_s32_unset_callback(const struct device *dev, uint8_t line);
+enum nxp_siul2_eirq_trigger {
+	//     /** Interrupt disabled */
+	//     NXP_SIUL2_EIRQ_DISABLE,
+	/** Interrupt triggered on rising edge */
+	NXP_SIUL2_EIRQ_RISING_EDGE,
+	/** Interrupt triggered on falling edge */
+	NXP_SIUL2_EIRQ_FALLING_EDGE,
+	/** Interrupt triggered on either edge */
+	NXP_SIUL2_EIRQ_BOTH_EDGES,
+};
 
 /**
- * @brief Set EIRQ callback for line
+ * @brief Unset SIUL2 EIRQ interrupt callback
  *
- * @param dev  EIRQ device
- * @param line EIRQ line
- * @param cb   Callback
- * @param pin  GPIO pin
- * @param arg  Callback data
- *
- * @retval 0 on SUCCESS
- * @retval -EBUSY if callback for the line is already set
+ * @param dev SIUL2 EIRQ device
+ * @param irq interrupt number
  */
-int eirq_nxp_s32_set_callback(const struct device *dev, uint8_t line,
-				eirq_nxp_s32_callback_t cb, uint8_t pin, void *arg);
+void nxp_siul2_eirq_unset_callback(const struct device *dev, uint8_t irq);
 
 /**
- * @brief Set edge event and enable interrupt for EIRQ line
+ * @brief Set SIUL2 EIRQ interrupt callback
  *
- * @param dev  EIRQ device
- * @param line EIRQ line
- * @param edge_type Type of edge event
+ * @param dev SIUL2 EIRQ device
+ * @param irq interrupt number
+ * @param pin GPIO pin associated with the interrupt
+ * @param cb  callback to install
+ * @param arg user data to include in callback
+ *
+ * @retval 0 on success
+ * @retval -EBUSY if callback for the interrupt is already set
  */
-void eirq_nxp_s32_enable_interrupt(const struct device *dev, uint8_t line,
-					Siul2_Icu_Ip_EdgeType edge_type);
+int nxp_siul2_eirq_set_callback(const struct device *dev, uint8_t irq, uint8_t pin,
+				nxp_siul2_eirq_callback_t cb, void *arg);
 
 /**
- * @brief Disable interrupt for EIRQ line
+ * @brief Enable interrupt on a given trigger event
  *
- * @param dev  EIRQ device
- * @param line EIRQ line
+ * @param dev SIUL2 EIRQ device
+ * @param irq interrupt number
+ * @param trigger trigger event
  */
-void eirq_nxp_s32_disable_interrupt(const struct device *dev, uint8_t line);
+void nxp_siul2_eirq_enable_interrupt(const struct device *dev, uint8_t irq,
+				     enum nxp_siul2_eirq_trigger trigger);
 
 /**
- * @brief Get pending interrupt for EIRQ device
+ * @brief Disable interrupt
  *
- * @param dev EIRQ device
- * @return A mask contains pending flags
+ * @param dev SIUL2 EIRQ device
+ * @param irq interrupt number
  */
-uint32_t eirq_nxp_s32_get_pending(const struct device *dev);
+void nxp_siul2_eirq_disable_interrupt(const struct device *dev, uint8_t irq);
+
+/**
+ * @brief Get pending interrupts
+ *
+ * @param dev SIUL2 EIRQ device
+ * @return A bitmask containing pending pending interrupts
+ */
+uint32_t nxp_siul2_eirq_get_pending(const struct device *dev);
 
 #endif /* ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER_INTC_EIRQ_NXP_S32_H_ */
